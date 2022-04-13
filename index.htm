@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>All Images</title>
+<style>
+html, body
+{
+    margin: 0;
+    background-color: whitesmoke;
+}
+canvas
+{
+    width: 100%;
+    image-rendering: pixelated;
+    background-color: black;
+}
+.content
+{
+    width: 800px;
+    margin: auto;
+    background-color: white;
+    padding: 1em;
+}
+.image
+{
+    position: relative;
+    float: right;
+    width: 50%;
+}
+.configuration
+{
+    width: 50%;
+}
+.source
+{
+    clear: both;
+}
+</style>
+<script type="text/javascript">
+let canvas, context;
+let running = false;
+let imageindex = BigInt(0);
+let time_runtime = 0;
+
+function parse_index(imagedata, imageindex, bits, channels)
+{
+    let x, y, pixelindex, colorindex, gray;
+    let mask = BigInt((2n ** BigInt(bits)) - 1n);
+
+    for(y = 0; y < canvas.height; ++y)
+    {
+        for(x = 0; x < canvas.width; ++x)
+        {
+            if(channels == 1)
+            {
+                pixelindex = (y * canvas.width + x) * 4;
+                colorindex = BigInt(y * canvas.width + x);
+                gray = 0xff * Number(((imageindex >> (BigInt(bits) * colorindex)) & mask) / mask);
+                imagedata.data[pixelindex+0] = gray;
+                imagedata.data[pixelindex+1] = gray;
+                imagedata.data[pixelindex+2] = gray;
+                imagedata.data[pixelindex+3] = 0xff;
+            }
+            else
+            {
+                pixelindex = (y * canvas.width + x) * 4;
+                colorindex = BigInt(y * canvas.width + x) * 3n;
+                imagedata.data[pixelindex+0] = 0xff * Number(((imageindex >> (BigInt(bits) * (colorindex + 0n))) & mask) / mask);
+                imagedata.data[pixelindex+1] = 0xff * Number(((imageindex >> (BigInt(bits) * (colorindex + 1n))) & mask) / mask);
+                imagedata.data[pixelindex+2] = 0xff * Number(((imageindex >> (BigInt(bits) * (colorindex + 2n))) & mask) / mask);
+                imagedata.data[pixelindex+3] = 0xff;
+            }
+        }
+    }
+}
+
+function time_suffix(milliseconds)
+{
+    const suffixes = {
+        "milliseconds": 1000,
+        "seconds": 60,
+        "minutes": 60,
+        "hours": 24,
+        "days": 7,
+        "weeks": 4,
+        "months": 52,
+        "years": 10,
+        "decades": 10,
+        "centuries": 10,
+        "millenia": 1,
+    };
+
+    for(let suffix in suffixes)
+    {
+        if((milliseconds / suffixes[suffix]) < 1)
+        {
+            return `${milliseconds.toFixed(6)} ${suffix}`;
+        }
+        milliseconds /= suffixes[suffix];
+    }
+}
+
+const timer = ms => new Promise(res => setTimeout(res, ms))
+
+async function run(event)
+{
+    event.preventDefault();
+    if(running)
+    {
+        document.querySelector("[type=submit]").innerHTML = "Run";
+        running = false;
+    }
+    else
+    {
+        const elements = document.querySelector("[name=configure]").elements;
+
+        const bits = elements.bits.value;
+        const channels = elements.channels.value;
+        canvas.width = elements.resolution_x.value;
+        canvas.height = elements.resolution_y.value;
+
+        let imagedata = context.createImageData(canvas.width, canvas.height);
+
+        const bits_required = bits * (canvas.width * canvas.height) * channels;
+
+        if(bits_required >= 1024)
+        {
+            console.error(`Image would require too many bits (${bits_required} >= 1024).`);
+            return;
+        }
+
+        document.querySelector("[type=submit]").innerHTML = "Pause";
+        running = true;
+
+        const maxindex = BigInt(((2 << (bits - 1)) ** (canvas.width * canvas.height)) ** channels);
+        document.querySelector("#combinations").innerHTML = Number(maxindex);
+
+        let time_iteration_average = 0;
+        let time_remaining = 0;
+        for(; imageindex < maxindex && running; ++imageindex)
+        {
+            let time_iteration_start = new Date();
+
+            parse_index(imagedata, imageindex, bits, channels);
+            context.putImageData(imagedata, 0, 0);
+
+            await timer(1);
+            let time_iteration_end = new Date();
+            time_iteration_average = (time_iteration_end - time_iteration_start + time_iteration_average * 9) / 10;
+            time_remaining = time_iteration_average * (Number(maxindex) - Number(imageindex));
+            time_runtime += time_iteration_average;
+
+            document.querySelector("#percentage").innerHTML = (100 * Number(imageindex) / Number(maxindex)).toFixed(6);
+            document.querySelector("#progress").innerHTML = `${Number(imageindex)} / ${Number(maxindex)}`;
+            document.querySelector("#remaining").innerHTML = time_suffix(time_remaining);
+            document.querySelector("#iterations").innerHTML = (time_iteration_average).toFixed(3);
+            document.querySelector("#runtime").innerHTML = time_suffix(time_runtime);
+        };
+
+        if(imageindex >= maxindex)
+        {
+            document.querySelector("#percentage").innerHTML = 100;
+            document.querySelector("#progress").innerHTML = "0 / 0";
+            document.querySelector("#remaining").innerHTML = "0 milliseconds";
+            document.querySelector("#iterations").innerHTML = 0;
+            document.querySelector("#runtime").innerHTML = 0;
+            document.querySelector("[type=submit]").innerHTML = "Run";
+            imageindex = BigInt(0);
+        }
+        running = false;
+    }
+}
+
+function init()
+{
+    canvas = document.querySelector("#every_image_ever");
+    context = canvas.getContext("2d");
+}
+</script>
+</head>
+<body onload="init();">
+<div class="content">
+    <h1>All images</h1>
+    <div class="image">
+        <canvas id="every_image_ever" width="100" height="100"></canvas>
+    </div>
+    <div class="configuration">
+        <h2>Configuration</h2>
+        <form name="configure" onsubmit="run(event);">
+        <ul>
+            <li><label for="resolution_x">Resolution x</label> <input name="resolution_x" type="text" value="3" size="5"/></li>
+            <li><label for="resolution_y">Resolution y</label> <input name="resolution_y" type="text" value="3" size="5"/></li>
+            <li><label for="bits">Color bit depth</label>
+                <select name="bits">
+                    <option value="1">1 (2 colors/channel)</option>
+                    <option value="2">2 (4 colors/channel)</option>
+                    <option value="3">3 (8 colors/channel)</option>
+                    <option value="4">4 (16 colors/channel)</option>
+                    <option value="5">5 (32 colors/channel)</option>
+                    <option value="6">6 (64 colors/channel)</option>
+                    <option value="7">7 (128 colors/channel)</option>
+                    <option value="8">8 (256 colors/channel)</option>
+                </select>
+            </li>
+            <li><label for="channels">Channels</label>
+                <select name="channels">
+                    <option value="3">3 (RGB)</option>
+                    <option value="1">1 (Grayscale)</option>
+                </select>
+            </li>
+        </ul>
+        <button type="submit">Run</button>
+        </form>
+        <h2>Statistics</h2>
+        <ul>
+            <li>Combinations: <span id="combinations">0</span>.</li>
+            <li>Progress: <span id="percentage">0</span>% (<span id="progress">0 / 0</span>).</li>
+            <li>Remaining time: <span id="remaining">0 milliseconds</span> (<span id="iterations">0</span>it/s).</li>
+            <li>Total runtime: <span id="runtime">0 milliseconds</span></li>
+        </ul>
+    </div>
+    <div class="source"><a href="https://github.com/Nurgak/all-images">Source</a></div>
+</div>
+</body>
+</html>
