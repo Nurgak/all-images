@@ -2,6 +2,9 @@
 <html>
 <head>
 <title>All Images</title>
+<meta name="description" content="All images">
+<meta name="keywords" content="image, picture, generator, rgb, grayscale">
+<meta name="author" content="Nurgak">
 <style>
 html, body
 {
@@ -35,29 +38,45 @@ canvas
 {
     clear: both;
 }
+h1::before
+{
+    content: "✳ ";
+}
+h2.configuration::before
+{
+    content: "🔧 ";
+}
+h2.statistics::before
+{
+    content: "📊 ";
+}
 </style>
 <script type="text/javascript">
-let canvas, context, elements, bits, channels, imagedata, maxindex;
-let time_iteration_average = 0, time_remaining, time_iteration_start, time_iteration_end, time_runtime_start, duration_runtime = 0;
-
+let canvas, context, elements, bits, channels, imageindex, maxindex;
+let time_runtime_start, duration_runtime;
 let running = false;
-let imageindex = BigInt(0);
-let time_runtime = 0;
 
-function parse_index(imagedata, imageindex, bits, channels)
+const format_bigint = {
+    notation: 'scientific',
+    maximumFractionDigits: 3,
+    minimumFractionDigits: 3
+};
+
+function update_image(imagedata)
 {
-    let x, y, pixelindex, colorindex, gray;
-    let mask = BigInt((2n ** BigInt(bits)) - 1n);
+    let x, y, pixelindex, red, green, blue, gray, overflow = 1;
+    const shift = (8 - bits);
 
-    for(y = 0; y < canvas.height; ++y)
+    for(y = 0; y < canvas.height && overflow; ++y)
     {
-        for(x = 0; x < canvas.width; ++x)
+        for(x = 0; x < canvas.width && overflow; ++x)
         {
+            pixelindex = (y * canvas.width + x) * 4;
             if(channels == 1)
             {
-                pixelindex = (y * canvas.width + x) * 4;
-                colorindex = BigInt(y * canvas.width + x);
-                gray = 0xff * Number(((imageindex >> (BigInt(bits) * colorindex)) & mask) / mask);
+                gray = imagedata.data[pixelindex+0] + (overflow << shift);
+                overflow = ((gray >> 8) & 1);
+                gray &= 0xff;
                 imagedata.data[pixelindex+0] = gray;
                 imagedata.data[pixelindex+1] = gray;
                 imagedata.data[pixelindex+2] = gray;
@@ -65,57 +84,64 @@ function parse_index(imagedata, imageindex, bits, channels)
             }
             else
             {
-                pixelindex = (y * canvas.width + x) * 4;
-                colorindex = BigInt(y * canvas.width + x) * 3n;
-                imagedata.data[pixelindex+0] = 0xff * Number(((imageindex >> (BigInt(bits) * (colorindex + 0n))) & mask) / mask);
-                imagedata.data[pixelindex+1] = 0xff * Number(((imageindex >> (BigInt(bits) * (colorindex + 1n))) & mask) / mask);
-                imagedata.data[pixelindex+2] = 0xff * Number(((imageindex >> (BigInt(bits) * (colorindex + 2n))) & mask) / mask);
+                red = imagedata.data[pixelindex+0] + (overflow << shift);
+                green = imagedata.data[pixelindex+1] + (((red >> 8) & 1) << shift);
+                blue = imagedata.data[pixelindex+2] + (((green >> 8) & 1) << shift);
+                overflow = ((blue >> 8) & 1);
+                imagedata.data[pixelindex+0] = red & 0xff;
+                imagedata.data[pixelindex+1] = green & 0xff;
+                imagedata.data[pixelindex+2] = blue & 0xff;
                 imagedata.data[pixelindex+3] = 0xff;
+            }
+            if(!overflow)
+            {
+                break;
             }
         }
     }
+    return overflow;
 }
 
 function time_suffix(milliseconds)
 {
     const suffixes = {
-        "milliseconds": 1000,
-        "seconds": 60,
-        "minutes": 60,
-        "hours": 24,
-        "days": 7,
-        "weeks": 4,
-        "months": 52,
-        "years": 10,
-        "decades": 10,
-        "centuries": 10,
-        "millenia": 1,
+        "milliseconds": 1000n,
+        "seconds": 60n,
+        "minutes": 60n,
+        "hours": 24n,
+        "days": 7n,
+        "weeks": 4n,
+        "months": 52n,
+        "years": 10n,
+        "decades": 10n,
+        "centuries": 10n,
+        "millenia": 1n,
     };
 
+    let result;
     for(let suffix in suffixes)
     {
-        if((milliseconds / suffixes[suffix]) < 1)
+        result = `${milliseconds.toLocaleString('en-US', format_bigint)} ${suffix}`;
+        if((milliseconds / suffixes[suffix]) < 1n)
         {
-            return `${milliseconds.toFixed(3)} ${suffix}`;
+            break;
         }
         milliseconds /= suffixes[suffix];
     }
+    return result;
 }
 
 function toggle()
 {
     if(running)
     {
-        document.querySelector("[name=run]").innerHTML = "Run";
         running = false;
-        duration_runtime += new Date() - time_runtime_start;
+        document.querySelector("[name=run]").innerHTML = "Run";
+        duration_runtime += BigInt(new Date()) - time_runtime_start;
         return;
     }
 
-    bits = elements.bits.value;
-    channels = elements.channels.value;
-    canvas.width = elements.resolution_x.value;
-    canvas.height = elements.resolution_y.value;
+    // If canvas is smaller than content: smooth, if bigger: pixelate.
     if(canvas.width > document.querySelector("#all_images").clientWidth)
     {
         document.querySelector("#all_images").style.imageRendering = "auto";
@@ -124,145 +150,166 @@ function toggle()
     {
         document.querySelector("#all_images").style.imageRendering = "pixelated";
     }
-    imagedata = context.createImageData(canvas.width, canvas.height);
 
-    const bits_required = bits * (canvas.width * canvas.height) * channels;
-
-    if(bits_required >= 1024)
+    // Special case for when the previous animation has finished.
+    if(imageindex == maxindex)
     {
-        console.error(`Image would require too many bits (${bits_required} >= 1024).`);
-        return;
+        reset_canvas();
     }
 
-    maxindex = BigInt(((2 << (bits - 1)) ** (canvas.width * canvas.height)) ** channels);
-    document.querySelector("#combinations").innerHTML = Number(maxindex);
+    // const bits_required = bits * (canvas.width * canvas.height) * channels;
 
+    // if(bits_required >= 1024)
+    // {
+    //     console.error(`Image would require too many bits (${bits_required} >= 1024).`);
+    //     return;
+    // }
+
+    maxindex = (BigInt(2 << (bits - 1)) ** BigInt(canvas.width * canvas.height)) ** BigInt(channels);
     document.querySelector("[name=run]").innerHTML = "Pause";
+
+    // Launch animation.
+    time_runtime_start = BigInt(new Date());
     running = true;
-    time_runtime_start = new Date();
     run();
 }
 
-function update_stats(percentage, time_remaining, iterations, duration_runtime)
+function update_stats(time_iteration_average, duration_runtime)
 {
-    document.querySelector("#percentage").innerHTML = percentage.toFixed(3);
-    document.querySelector("#combination").innerHTML = imageindex;
-    document.querySelector("#remaining").innerHTML = time_suffix(time_remaining);
-    document.querySelector("#iterations").innerHTML = iterations.toFixed(3);
-    document.querySelector("#runtime").innerHTML = time_suffix(duration_runtime);
+    document.querySelector("#combination").innerHTML = imageindex.toLocaleString('en-US', format_bigint);
+    document.querySelector("#combinations").innerHTML = maxindex.toLocaleString('en-US', format_bigint);
+    document.querySelector("#percentage").innerHTML = maxindex ? (100n * imageindex / maxindex).toLocaleString('en-US', format_bigint) : (0n).toLocaleString('en-US', format_bigint);
+    document.querySelector("#speed").innerHTML = time_iteration_average ? (1000n / time_iteration_average) : 0;
+    document.querySelector("#time_runtime").innerHTML = time_suffix(duration_runtime);
+    document.querySelector("#time_remaining").innerHTML = time_suffix(time_iteration_average * (maxindex - imageindex));
+    document.querySelector("#time_total").innerHTML = time_suffix(time_iteration_average * maxindex);
 }
 
 function run()
 {
-    if(imageindex >= maxindex)
+    // Prevent execution when frame has been scheduled, but user paused/reset the animation.
+    if(!running)
     {
-        imageindex = BigInt(0);
-        toggle();
         return;
     }
 
-    parse_index(imagedata, imageindex, bits, channels);
-    context.putImageData(imagedata, 0, 0);
-
-    time_iteration_average = (new Date() - time_runtime_start + duration_runtime) / Number(imageindex);
-    time_remaining = time_iteration_average * (Number(maxindex) - Number(imageindex));
-
+    const imagedata = context.getImageData(0, 0, canvas.width, canvas.height);
+    const end = update_image(imagedata);
     imageindex++;
-    if(running)
+
+    const duration = BigInt(new Date()) - time_runtime_start + duration_runtime;
+    const time_iteration_average = duration / imageindex;
+
+    update_stats(time_iteration_average, duration);
+
+    if(imageindex < maxindex && !end)
     {
+        context.putImageData(imagedata, 0, 0);
+        // Schedule next frame.
         requestAnimationFrame(run);
-        update_stats(
-            100 * Number(imageindex) / Number(maxindex),
-            time_remaining,
-            1000 / time_iteration_average,
-            new Date() - time_runtime_start + duration_runtime
-        );
+    }
+    else
+    {
+        toggle();
     }
 }
 
 function reset_canvas()
 {
+    // Stop if still running.
     if(running)
     {
         toggle();
     }
-    imageindex = BigInt(0);
-
+    // Read settings.
+    bits = elements.bits.value;
+    channels = elements.channels.value;
+    // Sanily check.
+    if(bits < 1 || channels < 1 || elements.resolution_x.value < 1 || elements.resolution_y.value < 1)
+    {
+        console.log("Error");
+        return;
+    }
+    // Clear image.
     canvas.width = elements.resolution_x.value;
     canvas.height = elements.resolution_y.value;
     imagedata = context.createImageData(canvas.width, canvas.height);
-    duration_runtime = 0;
-    update_stats(0, 0, 0, 0);
+    // Clear stats.
+    imageindex = 0n;
+    maxindex = 0n;
+    duration_runtime = 0n;
+    // Clear stats.
+    update_stats(0n, 0n);
 }
 
-function generate_all(canvas_id)
-{
-    if(running)
-    {
-        toggle();
-        reset_canvas();
-    }
+// function generate_all(canvas_id)
+// {
+//     if(running)
+//     {
+//         toggle();
+//         reset_canvas();
+//     }
 
-    const elements = document.querySelector("[name=configure]").elements;
-    const resolution_x = elements.resolution_x.value;
-    const resolution_y = elements.resolution_y.value;
-    const bits = elements.bits.value;
-    const channels = 1;
-    const mask = (2 ** bits) - 1;
-    const maxindex = ((2 << (bits - 1)) ** (resolution_x * resolution_y)) ** channels;
+//     const elements = document.querySelector("[name=configure]").elements;
+//     const resolution_x = elements.resolution_x.value;
+//     const resolution_y = elements.resolution_y.value;
+//     const bits = elements.bits.value;
+//     const channels = 1;
+//     const mask = (2 ** bits) - 1;
+//     const maxindex = ((2 << (bits - 1)) ** (resolution_x * resolution_y)) ** channels;
 
-    canvas.width = Math.round(Math.sqrt(maxindex)) * resolution_x;
-    canvas.height = Math.round(Math.sqrt(maxindex)) * resolution_y;
-    if(canvas.width > document.querySelector("#all_images").clientWidth)
-    {
-        document.querySelector("#all_images").style.imageRendering = "auto";
-    }
-    else
-    {
-        document.querySelector("#all_images").style.imageRendering = "pixelated";
-    }
-    const imagedata = context.createImageData(canvas.width, canvas.height);
-    document.querySelector("#combinations").innerHTML = Number(maxindex);
+//     canvas.width = Math.round(Math.sqrt(maxindex)) * resolution_x;
+//     canvas.height = Math.round(Math.sqrt(maxindex)) * resolution_y;
+//     if(canvas.width > document.querySelector("#all_images").clientWidth)
+//     {
+//         document.querySelector("#all_images").style.imageRendering = "auto";
+//     }
+//     else
+//     {
+//         document.querySelector("#all_images").style.imageRendering = "pixelated";
+//     }
+//     const imagedata = context.createImageData(canvas.width, canvas.height);
+//     document.querySelector("#combinations").innerHTML = Number(maxindex);
 
-    let x, y, pixelindex, colorindex, gray;
-    imageindex = BigInt(0);
+//     let x, y, pixelindex, colorindex, gray;
 
-    let time_iteration_start = new Date();
-    for(blit_y = 0; blit_y < Math.round(Math.sqrt(maxindex)); ++blit_y)
-    {
-        for(blit_x = 0; blit_x < Math.round(Math.sqrt(maxindex)); ++blit_x)
-        {
-            colorindex = 0
-            for(y = 0; y < resolution_y; ++y)
-            {
-                for(x = 0; x < resolution_x; ++x)
-                {
-                    pixelindex = ((blit_y * resolution_y + y) * canvas.width + (blit_x * resolution_x + x)) * 4;
-                    gray = 0xff * ((Number(imageindex) >> (bits * colorindex)) & mask) / mask;
-                    imagedata.data[pixelindex+0] = gray;
-                    imagedata.data[pixelindex+1] = gray;
-                    imagedata.data[pixelindex+2] = gray;
-                    imagedata.data[pixelindex+3] = 0xff;
-                    colorindex++;
-                }
-            }
-            imageindex++;
-            if(imageindex >= maxindex)
-            {
-                break;
-            }
-        }
-    }
-    context.putImageData(imagedata, 0, 0);
-    update_stats(100, 0, 0, new Date() - time_iteration_start);
-    imageindex = BigInt(0);
-}
+//     let time_iteration_start = new Date();
+//     for(blit_y = 0; blit_y < Math.round(Math.sqrt(maxindex)); ++blit_y)
+//     {
+//         for(blit_x = 0; blit_x < Math.round(Math.sqrt(maxindex)); ++blit_x)
+//         {
+//             colorindex = 0
+//             for(y = 0; y < resolution_y; ++y)
+//             {
+//                 for(x = 0; x < resolution_x; ++x)
+//                 {
+//                     pixelindex = ((blit_y * resolution_y + y) * canvas.width + (blit_x * resolution_x + x)) * 4;
+//                     gray = 0xff * ((Number(imageindex) >> (bits * colorindex)) & mask) / mask;
+//                     imagedata.data[pixelindex+0] = gray;
+//                     imagedata.data[pixelindex+1] = gray;
+//                     imagedata.data[pixelindex+2] = gray;
+//                     imagedata.data[pixelindex+3] = 0xff;
+//                     colorindex++;
+//                 }
+//             }
+//             imageindex++;
+//             if(imageindex >= maxindex)
+//             {
+//                 break;
+//             }
+//         }
+//     }
+//     context.putImageData(imagedata, 0, 0);
+//     update_stats(100, 0, 0, new Date() - time_iteration_start);
+//     imageindex = BigInt(0);
+// }
 
 function init()
 {
     canvas = document.querySelector("#all_images");
     context = canvas.getContext("2d");
     elements = document.querySelector("[name=configure]").elements;
+    reset_canvas();
 }
 </script>
 </head>
@@ -273,8 +320,8 @@ function init()
         <canvas id="all_images" width="100" height="100"></canvas>
     </div>
     <div class="configuration">
-        <h2>Configuration</h2>
-        <form name="configure" onsubmit="run(event);">
+        <h2 class="configuration">Configuration</h2>
+        <form name="configure">
         <ul>
             <li><label for="resolution_x">Resolution x</label> <input name="resolution_x" type="text" value="3" size="5"/></li>
             <li><label for="resolution_y">Resolution y</label> <input name="resolution_y" type="text" value="3" size="5"/></li>
@@ -299,18 +346,19 @@ function init()
         </ul>
         <button type="button" onclick="toggle();" name="run">Run</button>
         <button type="button" onclick="reset_canvas();">Reset</button>
-        <button type="button" onclick="generate_all();" name="all">Generate all</button>
+        <!-- <button type="button" onclick="generate_all();" name="all">Generate all</button> -->
         </form>
-        <h2>Statistics</h2>
+        <h2 class="statistics">Statistics</h2>
         <ul>
-            <li>Combination: <span id="combination">0</span> / <span id="combinations">0</span></li>
-            <li>Progress: <span id="percentage">0</span>%</li>
-            <li>Remaining time: <span id="remaining">0 milliseconds</span></li>
-            <li>Average speed: <span id="iterations">0</span> it/s</li>
-            <li>Total runtime: <span id="runtime">0 milliseconds</span></li>
+            <li>Combination: <span id="combination"></span> / <span id="combinations"></span></li>
+            <li>Progress: <span id="percentage"></span>%</li>
+            <li>Average speed: <span id="speed"></span> iterations/second</li>
+            <li>Runtime: <span id="time_runtime"></span></li>
+            <li>Remaining time: <span id="time_remaining"></span></li>
+            <li>Total time: <span id="time_total"></span></li>
         </ul>
     </div>
-    <div class="source"><a href="https://github.com/Nurgak/all-images">Source</a></div>
+    <div class="source"><a href="https://github.com/Nurgak/all-images">Source</a>, <a href="https://github.com/Nurgak/all-images/blob/main/LICENSE">MIT License</a></div>
 </div>
 </body>
 </html>
