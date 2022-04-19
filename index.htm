@@ -141,29 +141,11 @@ function toggle()
         return;
     }
 
-    // If canvas is smaller than content: smooth, if bigger: pixelate.
-    if(canvas.width > document.querySelector("#all_images").clientWidth)
-    {
-        document.querySelector("#all_images").style.imageRendering = "auto";
-    }
-    else
-    {
-        document.querySelector("#all_images").style.imageRendering = "pixelated";
-    }
-
     // Special case for when the previous animation has finished.
     if(imageindex == maxindex)
     {
         reset_canvas();
     }
-
-    // const bits_required = bits * (canvas.width * canvas.height) * channels;
-
-    // if(bits_required >= 1024)
-    // {
-    //     console.error(`Image would require too many bits (${bits_required} >= 1024).`);
-    //     return;
-    // }
 
     maxindex = (BigInt(2 << (bits - 1)) ** BigInt(canvas.width * canvas.height)) ** BigInt(channels);
     document.querySelector("[name=run]").innerHTML = "Pause";
@@ -233,6 +215,7 @@ function reset_canvas()
     // Clear image.
     canvas.width = elements.resolution_x.value;
     canvas.height = elements.resolution_y.value;
+
     imagedata = context.createImageData(canvas.width, canvas.height);
     // Clear stats.
     imageindex = 0n;
@@ -241,68 +224,6 @@ function reset_canvas()
     // Clear stats.
     update_stats(0n, 0n);
 }
-
-// function generate_all(canvas_id)
-// {
-//     if(running)
-//     {
-//         toggle();
-//         reset_canvas();
-//     }
-
-//     const elements = document.querySelector("[name=configure]").elements;
-//     const resolution_x = elements.resolution_x.value;
-//     const resolution_y = elements.resolution_y.value;
-//     const bits = elements.bits.value;
-//     const channels = 1;
-//     const mask = (2 ** bits) - 1;
-//     const maxindex = ((2 << (bits - 1)) ** (resolution_x * resolution_y)) ** channels;
-
-//     canvas.width = Math.round(Math.sqrt(maxindex)) * resolution_x;
-//     canvas.height = Math.round(Math.sqrt(maxindex)) * resolution_y;
-//     if(canvas.width > document.querySelector("#all_images").clientWidth)
-//     {
-//         document.querySelector("#all_images").style.imageRendering = "auto";
-//     }
-//     else
-//     {
-//         document.querySelector("#all_images").style.imageRendering = "pixelated";
-//     }
-//     const imagedata = context.createImageData(canvas.width, canvas.height);
-//     document.querySelector("#combinations").innerHTML = Number(maxindex);
-
-//     let x, y, pixelindex, colorindex, gray;
-
-//     let time_iteration_start = new Date();
-//     for(blit_y = 0; blit_y < Math.round(Math.sqrt(maxindex)); ++blit_y)
-//     {
-//         for(blit_x = 0; blit_x < Math.round(Math.sqrt(maxindex)); ++blit_x)
-//         {
-//             colorindex = 0
-//             for(y = 0; y < resolution_y; ++y)
-//             {
-//                 for(x = 0; x < resolution_x; ++x)
-//                 {
-//                     pixelindex = ((blit_y * resolution_y + y) * canvas.width + (blit_x * resolution_x + x)) * 4;
-//                     gray = 0xff * ((Number(imageindex) >> (bits * colorindex)) & mask) / mask;
-//                     imagedata.data[pixelindex+0] = gray;
-//                     imagedata.data[pixelindex+1] = gray;
-//                     imagedata.data[pixelindex+2] = gray;
-//                     imagedata.data[pixelindex+3] = 0xff;
-//                     colorindex++;
-//                 }
-//             }
-//             imageindex++;
-//             if(imageindex >= maxindex)
-//             {
-//                 break;
-//             }
-//         }
-//     }
-//     context.putImageData(imagedata, 0, 0);
-//     update_stats(100, 0, 0, new Date() - time_iteration_start);
-//     imageindex = BigInt(0);
-// }
 
 function init()
 {
@@ -346,7 +267,6 @@ function init()
         </ul>
         <button type="button" onclick="toggle();" name="run">Run</button>
         <button type="button" onclick="reset_canvas();">Reset</button>
-        <!-- <button type="button" onclick="generate_all();" name="all">Generate all</button> -->
         </form>
         <h2 class="statistics">Statistics</h2>
         <ul>
