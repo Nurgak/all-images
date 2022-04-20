@@ -8,6 +8,7 @@
 <style>
 html, body
 {
+    font-family: Verdana, Geneva, Tahoma, sans-serif;
     margin: 0;
     background-color: whitesmoke;
 }
@@ -30,7 +31,7 @@ canvas
     float: right;
     width: 50%;
 }
-.configuration
+.setup
 {
     width: 50%;
 }
@@ -105,24 +106,24 @@ function update_image(imagedata)
 function time_suffix(milliseconds)
 {
     const suffixes = {
-        "milliseconds": 1000n,
-        "seconds": 60n,
-        "minutes": 60n,
-        "hours": 24n,
-        "days": 7n,
-        "weeks": 4n,
-        "months": 52n,
-        "years": 10n,
-        "decades": 10n,
-        "centuries": 10n,
-        "millenia": 1n,
+        "milliseconds": BigInt(1000),
+        "seconds": BigInt(60),
+        "minutes": BigInt(60),
+        "hours": BigInt(24),
+        "days": BigInt(7),
+        "weeks": BigInt(4),
+        "months": BigInt(52),
+        "years": BigInt(10),
+        "decades": BigInt(10),
+        "centuries": BigInt(10),
+        "millenia": BigInt(1),
     };
 
     let result;
     for(let suffix in suffixes)
     {
         result = `${milliseconds.toLocaleString('en-US', format_bigint)} ${suffix}`;
-        if((milliseconds / suffixes[suffix]) < 1n)
+        if((milliseconds / suffixes[suffix]) < BigInt(1))
         {
             break;
         }
@@ -160,8 +161,8 @@ function update_stats(time_iteration_average, duration_runtime)
 {
     document.querySelector("#combination").innerHTML = imageindex.toLocaleString('en-US', format_bigint);
     document.querySelector("#combinations").innerHTML = maxindex.toLocaleString('en-US', format_bigint);
-    document.querySelector("#percentage").innerHTML = maxindex ? (100n * imageindex / maxindex).toLocaleString('en-US', format_bigint) : (0n).toLocaleString('en-US', format_bigint);
-    document.querySelector("#speed").innerHTML = time_iteration_average ? (1000n / time_iteration_average) : 0;
+    document.querySelector("#percentage").innerHTML = maxindex ? (BigInt(100) * imageindex / maxindex).toLocaleString('en-US', format_bigint) : (BigInt(0)).toLocaleString('en-US', format_bigint);
+    document.querySelector("#speed").innerHTML = time_iteration_average ? (BigInt(1000) / time_iteration_average) : 0;
     document.querySelector("#time_runtime").innerHTML = time_suffix(duration_runtime);
     document.querySelector("#time_remaining").innerHTML = time_suffix(time_iteration_average * (maxindex - imageindex));
     document.querySelector("#time_total").innerHTML = time_suffix(time_iteration_average * maxindex);
@@ -218,11 +219,20 @@ function reset_canvas()
 
     imagedata = context.createImageData(canvas.width, canvas.height);
     // Clear stats.
-    imageindex = 0n;
-    maxindex = 0n;
-    duration_runtime = 0n;
+    imageindex = BigInt(0);
+    maxindex = BigInt(0);
+    duration_runtime = BigInt(0);
     // Clear stats.
-    update_stats(0n, 0n);
+    update_stats(BigInt(0), BigInt(0));
+}
+
+// Fallback when BigInt is not supported, such as on some mobile devices.
+if(typeof BigInt === undefined)
+{
+    function BigInt(number)
+    {
+        return Number(number);
+    }
 }
 
 function init()
@@ -240,7 +250,7 @@ function init()
     <div class="image">
         <canvas id="all_images" width="100" height="100"></canvas>
     </div>
-    <div class="configuration">
+    <div class="setup">
         <h2 class="configuration">Configuration</h2>
         <form name="configure">
         <ul>
